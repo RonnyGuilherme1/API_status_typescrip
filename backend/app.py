@@ -3,6 +3,7 @@ from flask_cors import CORS
 from database import db
 from models import Device
 from datetime import datetime
+from secullum_service import secullum
 import os
 
 app = Flask(__name__)
@@ -81,6 +82,71 @@ def list_devices():
     
     db.session.commit()
     return jsonify(result)
+
+
+@app.route('/api/secullum/sync', methods=['POST'])
+def sync_from_secullum():
+    try:
+        equipamentos = secullum.get_equipamentos()
+        
+        synced = 0
+        for equip in equipamentos:
+            equip_id = equip.get("Id")
+            descricao = equip.get("Descricao", "Sem nome")
+            ip = equip.get("EnderecoIP", "")
+            
+            device = Device.query.filter_by(secullum_id=equip_id).first()
+            
+            if not device:
+                device = Device(
+                    cliente=descricao,
+                    serial=str(equip_id),
+                    ip=ip or "0.0.0.0",
+                    secullum_id=equip_id
+                )
+                db.session.add(device)
+                synced += 1
+            else:
+                device.cliente = descricao
+                if ip:
+                    device.ip = ip
+        
+        db.session.commit()
+        
+        return jsonify({
+            "status": "ok",
+            "total_equipamentos": len(equipamentos),
+            "novos_sincronizados": synced
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/secullum/equipamentos', methods=['GET'])
+def get_secullum_equipamentos():
+    try:
+        equipamentos = secullum.get_equipamentos()
+        return jsonify(equipamentos)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/secullum/bancos', methods=['GET'])
+def get_secullum_bancos():
+    try:
+        bancos = secullum.get_bancos()
+        return jsonify(bancos)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/secullum/banco/<int:banco_id>', methods=['POST'])
+def set_secullum_banco(banco_id):
+    try:
+        secullum.set_banco(banco_id)
+        return jsonify({"status": "ok", "banco_id": banco_id})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 if __name__ == '__main__':

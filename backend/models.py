@@ -11,6 +11,7 @@ class Device(db.Model):
     serial = db.Column(db.String(60), unique=True, nullable=False)
     ip = db.Column(db.String(50), nullable=False)
     last_seen = db.Column(db.DateTime)
+    secullum_id = db.Column(db.Integer, unique=True, nullable=True)
 
     def ping_device(self):
         param = "-n" if platform.system().lower() == "windows" else "-c"

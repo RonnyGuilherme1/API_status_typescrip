@@ -56,7 +56,7 @@ def heartbeat():
     if not device:
         return {"error": "Device not found"}, 404
 
-    device.last_seen = datetime.utcnow()
+    device.last_seen = datetime.now()
     db.session.commit()
 
     return {"status": "ok"}
@@ -66,58 +66,74 @@ def heartbeat():
 def list_devices():
     devices = Device.query.all()
     result = []
-    
+
+    now = datetime.now()
+
     for d in devices:
-        status = d.status()
-        if status == "ONLINE":
-            d.last_seen = datetime.now()
-        
+        last_seen = d.last_seen
+
+        # 🔹 Prioridade 1: Secullum
+        if d.secullum_id:
+            secullum_event = secullum.verificar_status_equipamento(d.secullum_id)
+            if secullum_event:
+                last_seen = secullum_event
+                d.last_seen = secullum_event
+
+        # 🔹 Define status APENAS pelo last_seen
+        status = "OFFLINE"
+
+        if last_seen:
+            diff = (now - last_seen).total_seconds()
+
+            if diff <= 20:
+                status = "ONLINE"
+            elif diff <= 120:
+                status = "INSTAVEL"
+            else:
+                status = "OFFLINE"
+
         result.append({
             "cliente": d.cliente,
             "serial": d.serial,
             "ip": d.ip,
             "status": status,
-            "last_seen": d.last_seen.isoformat() if d.last_seen else None
+            "last_seen": last_seen.isoformat() if last_seen else None
         })
-    
+
     db.session.commit()
     return jsonify(result)
+
 
 
 @app.route('/api/secullum/sync', methods=['POST'])
 def sync_from_secullum():
     try:
         equipamentos = secullum.get_equipamentos()
-        
-        synced = 0
+        atualizados = 0
+
         for equip in equipamentos:
             equip_id = equip.get("Id")
             descricao = equip.get("Descricao", "Sem nome")
             ip = equip.get("EnderecoIP", "")
-            
+
             device = Device.query.filter_by(secullum_id=equip_id).first()
-            
             if not device:
-                device = Device(
-                    cliente=descricao,
-                    serial=str(equip_id),
-                    ip=ip or "0.0.0.0",
-                    secullum_id=equip_id
-                )
-                db.session.add(device)
-                synced += 1
-            else:
-                device.cliente = descricao
-                if ip:
-                    device.ip = ip
-        
+                continue
+
+            device.cliente = descricao
+            if ip:
+                device.ip = ip
+
+            atualizados += 1
+
         db.session.commit()
-        
+
         return jsonify({
             "status": "ok",
-            "total_equipamentos": len(equipamentos),
-            "novos_sincronizados": synced
+            "equipamentos_no_secullum": len(equipamentos),
+            "equipamentos_atualizados_no_banco": atualizados
         })
+
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -127,6 +143,15 @@ def get_secullum_equipamentos():
     try:
         equipamentos = secullum.get_equipamentos()
         return jsonify(equipamentos)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/secullum/fonte-dados/<int:equip_id>', methods=['GET'])
+def get_fonte_dados(equip_id):
+    try:
+        dados = secullum.get_fonte_dados(equipamento_id=equip_id, dias=7)
+        return jsonify(dados)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -147,6 +172,71 @@ def set_secullum_banco(banco_id):
         return jsonify({"status": "ok", "banco_id": banco_id})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/devices/<serial>/ip', methods=['PUT'])
+def update_device_ip(serial):
+    data = request.get_json()
+    new_ip = data.get('ip')
+
+    if not new_ip:
+        return jsonify({"error": "IP não informado"}), 400
+
+    device = Device.query.filter_by(serial=serial).first()
+    if not device:
+        return jsonify({"error": "Dispositivo não encontrado"}), 404
+
+    device.ip = new_ip
+    db.session.commit()
+
+    return jsonify({
+        "status": "ok",
+        "serial": serial,
+        "ip": new_ip
+    })
+
+
+@app.route('/api/devices/<serial>', methods=['PUT'])
+def update_device(serial):
+    data = request.get_json()
+
+    device = Device.query.filter_by(serial=serial).first()
+    if not device:
+        return jsonify({"error": "Dispositivo não encontrado"}), 404
+
+    if 'cliente' in data:
+        device.cliente = data['cliente']
+    if 'ip' in data:
+        device.ip = data['ip']
+    if 'new_serial' in data:
+        device.serial = data['new_serial']
+
+    db.session.commit()
+
+    return jsonify({
+        "status": "ok",
+        "device": {
+            "cliente": device.cliente,
+            "serial": device.serial,
+            "ip": device.ip
+        }
+    })
+
+
+@app.route('/api/debug/devices', methods=['GET'])
+def debug_devices():
+    devices = Device.query.all()
+    return jsonify([
+        {
+            "id": d.id,
+            "cliente": d.cliente,
+            "serial": d.serial,
+            "ip": d.ip,
+            "secullum_id": d.secullum_id,
+            "last_seen": d.last_seen.isoformat() if d.last_seen else None
+        }
+        for d in devices
+    ])
 
 
 if __name__ == '__main__':

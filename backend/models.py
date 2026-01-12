@@ -9,23 +9,22 @@ class Device(db.Model):
     serial = db.Column(db.String(60), unique=True, nullable=False)
     ip = db.Column(db.String(50), nullable=False)
 
-    # Última comunicação válida (Secullum ou Heartbeat)
+    # NOVO: fabricante do equipamento
+    fabricante = db.Column(db.String(50), nullable=False, default="desconhecido")
+
+    # Última comunicação válida
     last_seen = db.Column(db.DateTime, nullable=True)
 
     # ID do equipamento no Secullum
     secullum_id = db.Column(db.Integer, unique=True, nullable=True)
 
     def to_dict(self):
-        """
-        Serializa o dispositivo para JSON.
-        O status é calculado no backend (app.py),
-        nunca aqui.
-        """
         return {
             "id": self.id,
             "cliente": self.cliente,
             "serial": self.serial,
             "ip": self.ip,
+            "fabricante": self.fabricante,
             "last_seen": self.last_seen.isoformat() if self.last_seen else None,
             "secullum_id": self.secullum_id
         }

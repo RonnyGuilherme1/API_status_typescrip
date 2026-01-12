@@ -6,6 +6,9 @@ export default function DashboardControlID() {
   const [loading, setLoading] = useState(true);
   const [editingField, setEditingField] = useState(null);
   const [editingValue, setEditingValue] = useState("");
+  const [bancoId, setBancoId] = useState(""); // Banco Secullum
+
+  // ------------------- FUNÇÕES -------------------
 
   const fetchDevices = () => {
     if (editingField) return; // evita atualização durante edição
@@ -19,11 +22,24 @@ export default function DashboardControlID() {
       .catch(() => setLoading(false));
   };
 
-  useEffect(() => {
-    fetchDevices();
-    const interval = setInterval(fetchDevices, 10000); // 10 segundos
-    return () => clearInterval(interval);
-  }, [editingField]);
+  const importarBanco = async () => {
+    if (!bancoId) return alert("Informe o banco Secullum");
+
+    try {
+      const response = await fetch("http://localhost:5000/api/secullum/importar", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ banco_id: bancoId })
+      });
+
+      const data = await response.json();
+      alert(`Equipamentos importados: ${data.importados}`);
+      fetchDevices(); // atualiza a lista
+    } catch (error) {
+      console.error(error);
+      alert("Erro ao importar equipamentos");
+    }
+  };
 
   const mapStatus = (status) => {
     if (status === "ONLINE")
@@ -69,6 +85,15 @@ export default function DashboardControlID() {
     }
   };
 
+  // ------------------- EFFECT -------------------
+  useEffect(() => {
+    fetchDevices();
+    const interval = setInterval(fetchDevices, 10000); // 10 segundos
+    return () => clearInterval(interval);
+  }, [editingField]);
+
+  // ------------------- RENDER -------------------
+
   if (loading) {
     return (
       <div className="p-6 text-xl font-semibold">
@@ -77,145 +102,171 @@ export default function DashboardControlID() {
     );
   }
 
-  if (devices.length === 0) {
-    return (
-      <div className="p-6 text-xl text-gray-500">
-        Nenhum dispositivo cadastrado
-      </div>
-    );
-  }
-
   return (
     <div className="p-6 space-y-6 min-h-screen bg-gray-100">
       <h1 className="text-3xl font-bold">
-        Dashboard de Monitoramento – Control iD
+        Dashboard de Monitoramento – Control iD / Secullum
       </h1>
 
-      <div className="grid md:grid-cols-3 gap-6">
-        {devices.map((d) => {
-          const cfg = mapStatus(d.status);
-          const Icon = cfg.icon;
-
-          const isEditingSerial =
-            editingField?.serial === d.serial &&
-            editingField?.field === "serial";
-
-          const isEditingIp =
-            editingField?.serial === d.serial &&
-            editingField?.field === "ip";
-
-          return (
-            <div
-              key={d.serial}
-              className="rounded-2xl shadow-xl bg-white p-5 space-y-3"
-            >
-              <div className="flex justify-between items-center">
-                <h2 className="text-lg font-semibold text-gray-800">
-                  {d.cliente}
-                </h2>
-                <span
-                  className={`text-white px-3 py-1 rounded-full text-xs font-medium flex items-center gap-1 ${cfg.color}`}
-                >
-                  <Icon size={14} /> {cfg.label}
-                </span>
-              </div>
-
-              <div className="text-sm space-y-2">
-                {/* SERIAL */}
-                <div className="flex items-center gap-2">
-                  <span className="text-gray-500 font-medium">Serial:</span>
-
-                  {isEditingSerial ? (
-                    <div className="flex items-center gap-1">
-                      <input
-                        type="text"
-                        value={editingValue}
-                        onChange={(e) => setEditingValue(e.target.value)}
-                        className="border rounded px-2 py-0.5 text-sm w-36"
-                        autoFocus
-                      />
-                      <button
-                        onClick={() => saveField(d.serial, "serial")}
-                        className="text-green-600"
-                      >
-                        <Check size={16} />
-                      </button>
-                      <button
-                        onClick={cancelEditing}
-                        className="text-red-600"
-                      >
-                        <X size={16} />
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="flex items-center gap-1">
-                      <span className="text-gray-600">{d.serial}</span>
-                      <button
-                        onClick={() =>
-                          startEditing(d.serial, "serial", d.serial)
-                        }
-                        className="text-gray-400"
-                      >
-                        <Pencil size={14} />
-                      </button>
-                    </div>
-                  )}
-                </div>
-
-                {/* IP */}
-                <div className="flex items-center gap-2">
-                  <span className="text-gray-500 font-medium">IP:</span>
-
-                  {isEditingIp ? (
-                    <div className="flex items-center gap-1">
-                      <input
-                        type="text"
-                        value={editingValue}
-                        onChange={(e) => setEditingValue(e.target.value)}
-                        className="border rounded px-2 py-0.5 text-sm w-32"
-                        autoFocus
-                      />
-                      <button
-                        onClick={() => saveField(d.serial, "ip")}
-                        className="text-green-600"
-                      >
-                        <Check size={16} />
-                      </button>
-                      <button
-                        onClick={cancelEditing}
-                        className="text-red-600"
-                      >
-                        <X size={16} />
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="flex items-center gap-1">
-                      <span className="text-blue-600">{d.ip}</span>
-                      <button
-                        onClick={() => startEditing(d.serial, "ip", d.ip)}
-                        className="text-gray-400"
-                      >
-                        <Pencil size={14} />
-                      </button>
-                    </div>
-                  )}
-                </div>
-
-                <p>
-                  <span className="text-gray-500 font-medium">
-                    Última comunicação:
-                  </span>{" "}
-                  <span className="text-blue-600">
-                    {d.last_seen
-                      ? new Date(d.last_seen).toLocaleString()
-                      : "Nunca"}
-                  </span>
-                </p>
-              </div>
-            </div>
-          );
-        })}
+      {/* Input Banco */}
+      {/* Input Banco + Botão Importar */}
+      <div className="flex flex-col md:flex-row items-start md:items-center gap-3 mb-6">
+        <input
+          type="text"
+          placeholder="Digite o banco Secullum"
+          value={bancoId}
+          onChange={(e) => setBancoId(e.target.value)}
+          className="border rounded-2xl px-4 py-2 shadow-md w-full md:w-64 focus:outline-none focus:ring-2 focus:ring-blue-400 placeholder-gray-400 transition"
+        />
+        <button
+          onClick={importarBanco}
+          className="bg-blue-500 text-white rounded-2xl px-6 py-2 shadow-md hover:bg-blue-600 hover:shadow-lg transition duration-200 font-semibold"
+        >
+          Importar Equipamentos
+        </button>
       </div>
+
+
+      {/* Lista de Dispositivos */}
+      {devices.length === 0 ? (
+        <div className="p-6 text-xl text-gray-500">
+          Nenhum dispositivo cadastrado
+        </div>
+      ) : (
+        <div className="grid md:grid-cols-3 gap-6">
+          {devices.map((d) => {
+            const cfg = mapStatus(d.status);
+            const Icon = cfg.icon;
+
+            const isEditingSerial =
+              editingField?.serial === d.serial &&
+              editingField?.field === "serial";
+
+            const isEditingIp =
+              editingField?.serial === d.serial &&
+              editingField?.field === "ip";
+
+            return (
+              <div
+                key={d.serial}
+                className="rounded-2xl shadow-xl bg-white p-5 space-y-3"
+              >
+                <div className="flex justify-between items-center">
+                  <h2 className="text-lg font-semibold text-gray-800">
+                    {d.cliente}
+                  </h2>
+                  <span
+                    className={`text-white px-3 py-1 rounded-full text-xs font-medium flex items-center gap-1 ${cfg.color}`}
+                  >
+                    <Icon size={14} /> {cfg.label}
+                  </span>
+                </div>
+
+                <div className="text-sm space-y-2">
+                  {/* SERIAL */}
+                  <div className="flex items-center gap-2">
+                    <span className="text-gray-500 font-medium">Serial:</span>
+
+                    {isEditingSerial ? (
+                      <div className="flex items-center gap-1">
+                        <input
+                          type="text"
+                          value={editingValue}
+                          onChange={(e) => setEditingValue(e.target.value)}
+                          className="border rounded px-2 py-0.5 text-sm w-36"
+                          autoFocus
+                        />
+                        <button
+                          onClick={() => saveField(d.serial, "serial")}
+                          className="text-green-600"
+                        >
+                          <Check size={16} />
+                        </button>
+                        <button
+                          onClick={cancelEditing}
+                          className="text-red-600"
+                        >
+                          <X size={16} />
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-1">
+                        <span className="text-gray-600">{d.serial}</span>
+                        <button
+                          onClick={() =>
+                            startEditing(d.serial, "serial", d.serial)
+                          }
+                          className="text-gray-400"
+                        >
+                          <Pencil size={14} />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* IP */}
+                  <div className="flex items-center gap-2">
+                    <span className="text-gray-500 font-medium">IP:</span>
+
+                    {isEditingIp ? (
+                      <div className="flex items-center gap-1">
+                        <input
+                          type="text"
+                          value={editingValue}
+                          onChange={(e) => setEditingValue(e.target.value)}
+                          className="border rounded px-2 py-0.5 text-sm w-32"
+                          autoFocus
+                        />
+                        <button
+                          onClick={() => saveField(d.serial, "ip")}
+                          className="text-green-600"
+                        >
+                          <Check size={16} />
+                        </button>
+                        <button
+                          onClick={cancelEditing}
+                          className="text-red-600"
+                        >
+                          <X size={16} />
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-1">
+                        <span className="text-blue-600">{d.ip}</span>
+                        <button
+                          onClick={() => startEditing(d.serial, "ip", d.ip)}
+                          className="text-gray-400"
+                        >
+                          <Pencil size={14} />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Fabricante */}
+                  <p>
+                    <span className="text-gray-500 font-medium">
+                      Fabricante:
+                    </span>{" "}
+                    <span className="text-blue-600">{d.fabricante}</span>
+                  </p>
+
+                  <p>
+                    <span className="text-gray-500 font-medium">
+                      Última comunicação:
+                    </span>{" "}
+                    <span className="text-blue-600">
+                      {d.last_seen
+                        ? new Date(d.last_seen).toLocaleString()
+                        : "Nunca"}
+                    </span>
+                  </p>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

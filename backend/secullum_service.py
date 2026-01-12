@@ -8,19 +8,18 @@ load_dotenv()
 
 class SecullumService:
     AUTH_URL = "https://autenticador.secullum.com.br/Token"
-    CLAIMS_URL = "https://autenticador.secullum.com.br/ReinvidicacoesToken"
     BANCOS_URL = "https://autenticador.secullum.com.br/ContasSecullumExterno/ListarBancos/"
     API_URL = "https://pontowebintegracaoexterna.secullum.com.br/IntegracaoExterna"
 
     def __init__(self):
         self.username = os.getenv("SECULLUM_USER")
         self.password = os.getenv("SECULLUM_PASSWORD")
+
         self.access_token = None
+        self.expires_at = None
         self.banco_id = None
-        self.bancos = []
 
-    # ---------------- AUTH ----------------
-
+    # ---------- AUTH ----------
     def authenticate(self):
         data = {
             "grant_type": "password",
@@ -30,158 +29,95 @@ class SecullumService:
         }
 
         headers = {"Content-Type": "application/x-www-form-urlencoded"}
-
         response = requests.post(self.AUTH_URL, data=data, headers=headers)
 
         if response.status_code != 200:
-            raise Exception(f"Erro na autenticação: {response.text}")
+            raise Exception(f"Erro na autenticação Secullum: {response.text}")
 
-        result = response.json()
-        self.access_token = result.get("access_token")
+        payload = response.json()
 
-        self._get_banco_id()
-        return self.access_token
+        self.access_token = payload.get("access_token")
+        expires_in = payload.get("expires_in", 3600)
 
-    def _get_banco_id(self):
-        headers = {
-            "Authorization": f"Bearer {self.access_token}"
-        }
+        # margem de segurança
+        self.expires_at = datetime.now() + timedelta(seconds=expires_in - 60)
 
-        response = requests.get(self.BANCOS_URL, headers=headers)
+    def _token_expirado(self):
+        return not self.expires_at or datetime.now() >= self.expires_at
 
-        if response.status_code != 200:
-            raise Exception(f"Erro ao obter bancos ({response.status_code}): {response.text}")
-
-        all_bancos = response.json()
-        self.bancos = [b for b in all_bancos if b.get("clienteId") == "3"]
-
-        if self.bancos:
-            self.banco_id = str(self.bancos[0].get("id"))
-
-        return self.banco_id
-
-    # ---------------- HELPERS ----------------
-
+    # ---------- HELPERS ----------
     def _get_headers(self):
+        if not self.access_token or self._token_expirado():
+            self.authenticate()
+
+        if not self.banco_id:
+            raise Exception("Banco Secullum não selecionado")
+
         return {
             "Authorization": f"Bearer {self.access_token}",
             "Content-Type": "application/json",
             "Accept-Language": "pt-BR",
-            "secullumidbancoselecionado": self.banco_id
+            "secullumidbancoselecionado": str(self.banco_id)
         }
 
-    def _parse_secullum_datetime(self, data_str, hora_str=None):
-        if not data_str:
-            return None
-
-        try:
-            if "T" in data_str:
-                return datetime.fromisoformat(data_str)
-
-            if hora_str:
-                return datetime.strptime(
-                    f"{data_str} {hora_str}", "%Y-%m-%d %H:%M"
-                )
-
-            return datetime.strptime(data_str, "%Y-%m-%d")
-
-        except Exception as e:
-            print(f"Erro ao converter data Secullum: {data_str} {hora_str} -> {e}")
-            return None
-
-    # ---------------- API ----------------
-
+    # ---------- API ----------
     def get_bancos(self):
-        if not self.access_token:
+        if not self.access_token or self._token_expirado():
             self.authenticate()
-        return self.bancos
+
+        headers = {"Authorization": f"Bearer {self.access_token}"}
+        r = requests.get(self.BANCOS_URL, headers=headers)
+
+        if r.status_code != 200:
+            raise Exception("Erro ao listar bancos")
+
+        return r.json()
 
     def set_banco(self, banco_id):
-        self.banco_id = str(banco_id)
+        self.banco_id = banco_id
 
     def get_equipamentos(self):
-        if not self.access_token:
-            self.authenticate()
-
         url = f"{self.API_URL}/Equipamentos"
-        response = requests.get(url, headers=self._get_headers())
+        r = requests.get(url, headers=self._get_headers())
 
-        if response.status_code != 200:
-            raise Exception(f"Erro ao buscar equipamentos: {response.text}")
+        if r.status_code != 200:
+            raise Exception(f"Erro ao buscar equipamentos: {r.text}")
 
-        return response.json()
+        return r.json()
 
-    def get_fonte_dados(self, equipamento_id=None, dias=1):
-        if not self.access_token:
-            self.authenticate()
-
+    def get_fonte_dados(self, equipamento_id, dias=1):
         data_fim = datetime.now()
         data_inicio = data_fim - timedelta(days=dias)
 
         params = {
             "dataInicio": data_inicio.strftime("%Y-%m-%d"),
-            "dataFim": data_fim.strftime("%Y-%m-%d")
+            "dataFim": data_fim.strftime("%Y-%m-%d"),
+            "equipamentoId": equipamento_id
         }
-
-        if equipamento_id:
-            params["equipamentoId"] = equipamento_id
 
         url = f"{self.API_URL}/FonteDados"
-        response = requests.get(url, headers=self._get_headers(), params=params)
+        r = requests.get(url, headers=self._get_headers(), params=params)
 
-        if response.status_code != 200:
-            raise Exception(f"Erro ao buscar fonte de dados: {response.text}")
+        if r.status_code != 200:
+            raise Exception(f"Erro ao buscar fonte de dados: {r.text}")
 
-        return response.json()
-
-    def get_batidas(self, equipamento_id=None, dias=1):
-        if not self.access_token:
-            self.authenticate()
-
-        data_fim = datetime.now()
-        data_inicio = data_fim - timedelta(days=dias)
-
-        params = {
-            "dataInicio": data_inicio.strftime("%Y-%m-%d"),
-            "dataFim": data_fim.strftime("%Y-%m-%d")
-        }
-
-        if equipamento_id:
-            params["equipamentoId"] = equipamento_id
-
-        url = f"{self.API_URL}/Batidas"
-        response = requests.get(url, headers=self._get_headers(), params=params)
-
-        if response.status_code != 200:
-            raise Exception(f"Erro ao buscar batidas: {response.text}")
-
-        return response.json()
-
-    # ---------------- STATUS ----------------
+        return r.json()
 
     def verificar_status_equipamento(self, equipamento_id):
-        try:
-            eventos = self.get_fonte_dados(equipamento_id=equipamento_id, dias=1)
+        eventos = self.get_fonte_dados(equipamento_id, dias=1)
+        timestamps = []
 
-            timestamps = []
+        for e in eventos:
+            try:
+                dt = datetime.strptime(
+                    f"{e.get('Data')} {e.get('Hora')}",
+                    "%Y-%m-%d %H:%M"
+                )
+                timestamps.append(dt)
+            except:
+                pass
 
-            for e in eventos:
-                data = e.get("Data")
-                hora = e.get("Hora")
-
-                dt = self._parse_secullum_datetime(data, hora)
-                if dt:
-                    timestamps.append(dt)
-
-            if not timestamps:
-                return None
-
-            return max(timestamps)
-
-        except Exception as e:
-            print(f"Erro Secullum {equipamento_id}: {e}")
-            return None
-
+        return max(timestamps) if timestamps else None
 
 
 secullum = SecullumService()
